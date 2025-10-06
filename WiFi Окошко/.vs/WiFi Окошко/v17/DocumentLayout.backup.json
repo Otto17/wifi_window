@@ -1,0 +1,53 @@
+{
+  "Version": 1,
+  "WorkspaceRootPath": "C:\\Users\\Kanurkin\\Desktop\\\u043F\u0440\u043E\u0435\u043A\u0442\\WiFi \u041E\u043A\u043E\u0448\u043A\u043E\\",
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{EC909F85-AFA1-472D-8280-8AE04A29FC62}|WiFi \u041E\u043A\u043E\u0448\u043A\u043E.csproj|C:\\Users\\Kanurkin\\Desktop\\\u043F\u0440\u043E\u0435\u043A\u0442\\WiFi \u041E\u043A\u043E\u0448\u043A\u043E\\formwifi.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form",
+      "RelativeMoniker": "D:0:0:{EC909F85-AFA1-472D-8280-8AE04A29FC62}|WiFi \u041E\u043A\u043E\u0448\u043A\u043E.csproj|solutionrelative:formwifi.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}|Form"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{EC909F85-AFA1-472D-8280-8AE04A29FC62}|WiFi \u041E\u043A\u043E\u0448\u043A\u043E.csproj|c:\\users\\kanurkin\\desktop\\\u043F\u0440\u043E\u0435\u043A\u0442\\wifi \u043E\u043A\u043E\u0448\u043A\u043E\\formwifi.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{EC909F85-AFA1-472D-8280-8AE04A29FC62}|WiFi \u041E\u043A\u043E\u0448\u043A\u043E.csproj|solutionrelative:formwifi.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
+    }
+  ],
+  "DocumentGroupContainers": [
+    {
+      "Orientation": 0,
+      "VerticalTabListWidth": 256,
+      "DocumentGroups": [
+        {
+          "DockedWidth": 200,
+          "SelectedChildIndex": 0,
+          "Children": [
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "FormWiFi.cs [\u041A\u043E\u043D\u0441\u0442\u0440\u0443\u043A\u0442\u043E\u0440]",
+              "DocumentMoniker": "C:\\Users\\Kanurkin\\Desktop\\\u043F\u0440\u043E\u0435\u043A\u0442\\WiFi \u041E\u043A\u043E\u0448\u043A\u043E\\FormWiFi.cs",
+              "RelativeDocumentMoniker": "FormWiFi.cs",
+              "ToolTip": "C:\\Users\\Kanurkin\\Desktop\\\u043F\u0440\u043E\u0435\u043A\u0442\\WiFi \u041E\u043A\u043E\u0448\u043A\u043E\\FormWiFi.cs [\u041A\u043E\u043D\u0441\u0442\u0440\u0443\u043A\u0442\u043E\u0440]",
+              "RelativeToolTip": "FormWiFi.cs [\u041A\u043E\u043D\u0441\u0442\u0440\u0443\u043A\u0442\u043E\u0440]",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-02T04:48:16.82Z",
+              "EditorCaption": " [\u041A\u043E\u043D\u0441\u0442\u0440\u0443\u043A\u0442\u043E\u0440]"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 1,
+              "Title": "FormWiFi.cs",
+              "DocumentMoniker": "C:\\Users\\Kanurkin\\Desktop\\\u043F\u0440\u043E\u0435\u043A\u0442\\WiFi \u041E\u043A\u043E\u0448\u043A\u043E\\FormWiFi.cs",
+              "RelativeDocumentMoniker": "FormWiFi.cs",
+              "ToolTip": "C:\\Users\\Kanurkin\\Desktop\\\u043F\u0440\u043E\u0435\u043A\u0442\\WiFi \u041E\u043A\u043E\u0448\u043A\u043E\\FormWiFi.cs",
+              "RelativeToolTip": "FormWiFi.cs",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000738|",
+              "WhenOpened": "2025-10-02T05:07:55.407Z",
+              "EditorCaption": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

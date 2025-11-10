@@ -1,0 +1,129 @@
+# ====================================================================
+# Скрипт "UpdateVirtual_Wi-Fi" для смены ПАРОЛЯ (динамическая длина) и SSID (опционально) виртуального Wi‑Fi интерфейса "Client_WLAN".
+# Тестировал на роутерах : RB951Ui-2nD (RouterOS 6.48); RB951Ui-2HnD (RouterOS 6.49); RBD52G-5HacD2HnD (RouterOS 7.20).
+# ====================================================================
+
+
+# --- НАСТРОЙКИ ---
+# Диапазон длины пароля (от 8 до 63 символов)
+:local minPasswordLength 8
+:local maxPasswordLength 10
+
+# true - менять и SSID, false - менять только пароль
+:local changeSsid false
+# Длина генерируемого SSID (если смена включена)
+:local ssidLength 6
+
+# Фиксированное имя виртуального интерфейса
+:local wlanInterfaceName "Client_WLAN"
+
+
+# --- ПРОВЕРКИ И ОПРЕДЕЛЕНИЕ ПРОФИЛЯ ---
+
+# Найдём интерфейс по имени
+:local wlanId [/interface wireless find where name=$wlanInterfaceName]
+:if ([:len $wlanId] = 0) do={
+    :log error ("Интерфейс '" . $wlanInterfaceName . "' не найден. Смена отменена.")
+    :put ("ОШИБКА: Интерфейс '" . $wlanInterfaceName . "' не найден!")
+} else={
+
+    # Определим профиль безопасности, привязанный к этому интерфейсу
+    :local securityProfile [/interface wireless get $wlanId security-profile]
+    :if ([:len $securityProfile] = 0) do={
+        :log error ("Для интерфейса '" . $wlanInterfaceName . "' не определён профиль безопасности. Смена отменена.")
+        :put ("ОШИБКА: Не удалось определить профиль безопасности для '" . $wlanInterfaceName . "'.")
+    } else={
+
+        :log info ("Работаем с виртуальным Wi‑Fi '" . $wlanInterfaceName . "', профиль '" . $securityProfile . "'.")
+
+        # --- ПОДГОТОВКА К ГЕНЕРАЦИИ ---
+        :local timeStr [/system clock get time]
+        :local uptimeStr [:tostr [/system resource get uptime]]
+        :local cpuLoad [/system resource get cpu-load]
+        :local timeHours [:tonum [:pick $timeStr 0 2]]
+        :local timeMinutes [:tonum [:pick $timeStr 3 5]]
+        :local timeSeconds [:tonum [:pick $timeStr 6 8]]
+        :local baseSeed (($timeHours * 3600) + ($timeMinutes * 60) + $timeSeconds + ($cpuLoad * 1000))
+        :local uptimeNum 0
+        :for j from=0 to=([:len $uptimeStr] - 1) do={
+            :local char [:pick $uptimeStr $j]
+            :local asciiCode [:tonum $char]
+            :if ([:typeof $asciiCode] = "num") do={ :set uptimeNum ($uptimeNum + $asciiCode) }
+        }
+        :set baseSeed ($baseSeed + $uptimeNum)
+
+        # --- ВАЛИДАЦИЯ И ОПРЕДЕЛЕНИЕ ДЛИНЫ ПАРОЛЯ ---
+        :if ($minPasswordLength < 8) do={ :set minPasswordLength 8 }
+        :if ($maxPasswordLength > 63) do={ :set maxPasswordLength 63 }
+        :if ($minPasswordLength > $maxPasswordLength) do={ :set minPasswordLength $maxPasswordLength }
+
+        :if ($ssidLength < 1)  do={ :set ssidLength 1 }
+        :if ($ssidLength > 32) do={ :set ssidLength 32 }
+
+        # --- ДЛИНА ПАРОЛЯ ---
+        :local lengthRange ($maxPasswordLength - $minPasswordLength + 1)
+        :local randomLengthOffset ($baseSeed % $lengthRange)
+        :local actualPasswordLength ($minPasswordLength + $randomLengthOffset)
+
+        # --- ГЕНЕРАЦИЯ СЛУЧАЙНОГО ПАРОЛЯ ---
+        :local newPassword ""
+        :local passChars "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789-_"
+        :local passCharsLen [:len $passChars]
+        :local currentSeed $baseSeed
+        :for i from=1 to=$actualPasswordLength do={
+            :set currentSeed ((($currentSeed * 1103515245) + 12345) % 2147483648)
+            :local mixedSeed ($currentSeed + ($i * 104729))
+            :local charIndex ($mixedSeed % $passCharsLen)
+            :if ($charIndex < 0) do={ :set charIndex ($charIndex * -1) }
+            :set newPassword ($newPassword . [:pick $passChars $charIndex ($charIndex + 1)])
+        }
+        :log info ("Сгенерирован новый пароль (длина: $actualPasswordLength): " . $newPassword)
+
+        # --- ГЕНЕРАЦИЯ НОВОГО SSID (ЕСЛИ ВКЛЮЧЕНО) ---
+        :local newSsid ""
+        :if ($changeSsid) do={
+            :local ssidChars "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+            :local ssidCharsLen [:len $ssidChars]
+            :set currentSeed ($baseSeed + 1)
+            :for i from=1 to=$ssidLength do={
+                :set currentSeed ((($currentSeed * 1664525) + 1013904223) % 2147483648)
+                :local charIndex ($currentSeed % $ssidCharsLen)
+                :if ($charIndex < 0) do={ :set charIndex ($charIndex * -1) }
+                :set newSsid ($newSsid . [:pick $ssidChars $charIndex ($charIndex + 1)])
+            }
+            :log info ("Сгенерирован новый SSID: " . $newSsid)
+        }
+
+        # --- ПРИМЕНЕНИЕ ИЗМЕНЕНИЙ ---
+        :do {
+            :local oldPassword [/interface wireless security-profiles get [find name=$securityProfile] wpa2-pre-shared-key]
+            :local oldSsid [/interface wireless get $wlanId ssid]
+
+            /interface wireless security-profiles set [find name=$securityProfile] authentication-types=wpa2-psk wpa2-pre-shared-key=$newPassword
+            :log info ("Пароль для профиля '$securityProfile' изменён.")
+
+            :if ($changeSsid) do={
+                /interface wireless set $wlanId ssid=$newSsid
+                :log info ("SSID для интерфейса '$wlanInterfaceName' изменён.")
+            }
+
+            # --- ВЫВОД РЕЗУЛЬТАТОВ В КОНСОЛЬ ---
+            :put "================================"
+            :put ("Интерфейс: " . $wlanInterfaceName)
+            :put ("Профиль безопасности: " . $securityProfile)
+            :if ($changeSsid) do={
+                 :put ("СТАРЫЙ SSID: " . $oldSsid)
+                 :put ("НОВЫЙ SSID: " . $newSsid)
+            } else={
+                 :put ("SSID не менялся: " . $oldSsid)
+            }
+            :put ("СТАРЫЙ ПАРОЛЬ: " . $oldPassword)
+            :put ("НОВЫЙ ПАРОЛЬ: " . $newPassword . " (длина: " . $actualPasswordLength . ")")
+            :put "================================"
+
+        } on-error={
+            :log error "Ошибка при применении изменений!"
+            :put "ОШИБКА: Не удалось изменить параметры гостевого Wi‑Fi!"
+        }
+    }
+}

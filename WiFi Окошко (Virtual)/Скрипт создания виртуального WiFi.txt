@@ -1,0 +1,125 @@
+# ====================================================================
+# Скрипт "Install_Virtual_Wi-Fi" для создания виртуального WiFi.
+# Тестировал на роутерах : RB951Ui-2nD (RouterOS 6.48); RB951Ui-2HnD (RouterOS 6.49); RBD52G-5HacD2HnD (RouterOS 7.20).
+# ====================================================================
+
+
+# --- НАСТРОЙКИ ---
+# Название основного бриджа
+:local mainBridge "lan"
+
+# Возможные значения:
+# "2ghz"  — искать 2.4 ГГц интерфейс
+# "5ghz"  — искать 5 ГГц интерфейс
+:local targetBand "2ghz"
+
+# Название создаваемого виртуального интерфейса
+:local virtualName "Client_WLAN"
+# SSID и профиль безопасности
+:local virtualSsid "Client_WiFi"
+:local virtualProfile "security_Client_WLAN"
+
+# ====================================================================
+
+# Создаём Бридж "bridge_Client_WLAN":
+/interface bridge
+add comment="\C2\E8\F0\F2\F3\E0\EB\FC\ED\FB\E9 WiFi" name=bridge_Client_WLAN
+
+
+# Создаём профиль безопасности (WPA2-PSK) с базовым паролем:
+/interface wireless security-profiles
+add authentication-types=wpa2-psk comment=\
+    "\C2\E8\F0\F2\F3\E0\EB\FC\ED\FB\E9 WiFi" mode=dynamic-keys name=\
+    security_Client_WLAN supplicant-identity="" wpa2-pre-shared-key=123456789
+
+
+# Создаём виртуальный WiFi с изоляцией и автоматическим выбором диапазона:
+:local wlanInterface ""
+
+# --- Поиск активного интерфейса с нужным диапазоном ---
+:foreach i in=[/interface wireless find where disabled=no] do={
+    :if ([:len $wlanInterface] = 0) do={
+        :local currentBand [/interface wireless get $i band]
+        :if ([:find $currentBand $targetBand] >= 0) do={
+            :set wlanInterface [/interface wireless get $i name]
+        }
+    }
+}
+
+# --- Если не найден — взять первый активный интерфейс ---
+:if ([:len $wlanInterface] = 0) do={
+    :set wlanInterface [/interface wireless get ([/interface wireless find where disabled=no]->0) name]
+    :log warning ("Не найден интерфейс диапазона " . $targetBand . ", выбран первый активный: " . $wlanInterface)
+}
+
+# --- Проверка существования виртуального интерфейса ---
+:if ([:len [/interface wireless find name=$virtualName]] > 0) do={
+    :log info ("Интерфейс '" . $virtualName . "' уже существует, пропуск создания.")
+    :put ("Интерфейс " . $virtualName . " уже существует, пропуск.")
+} else={
+    /interface wireless add \
+        comment="\C2\E8\F0\F2\F3\E0\EB\FC\ED\FB\E9 WiFi \E4\EB\FF \EA\EB\E8\E5\ED\
+    \F2\EE\E2" \
+        default-forwarding=no disabled=no keepalive-frames=disabled \
+        master-interface=$wlanInterface multicast-buffering=disabled \
+        name=$virtualName security-profile=$virtualProfile \
+        ssid=$virtualSsid wps-mode=disabled
+
+    :log info ("Виртуальный интерфейс '" . $virtualName . "' успешно создан (master: " . $wlanInterface . ").")
+    :put "Готово: создан $virtualName (master: $wlanInterface, диапазон: $targetBand)"
+}
+
+# Создаём пул адресов:
+/ip pool
+add comment="\C2\E8\F0\F2\F3\E0\EB\FC\ED\FB\E9 WiFi" name=pool_Client_WLAN \
+    ranges=10.0.0.100-10.0.0.254
+
+
+# Создаём DHCP сервер:
+/ip dhcp-server
+add address-pool=pool_Client_WLAN disabled=no interface=bridge_Client_WLAN \
+    lease-time=5m name=dhcp_Client_WLAN
+
+
+# Добавляем виртуальный WiFi к изолированному бриджу:
+/interface bridge port
+add bridge=bridge_Client_WLAN comment=\
+    "\C8\E7\EE\EB\FF\F6\E8\FF \E2\E8\F0\F2\F3\E0\EB\FC\ED\EE\E3\EE WiFi" \
+    interface=Client_WLAN
+
+
+# Создаём IP-адрес:
+/ip address
+add address=10.0.0.1/24 comment="\C2\E8\F0\F2\F3\E0\EB\FC\ED\FB\E9 WiFi" \
+    interface=bridge_Client_WLAN network=10.0.0.0
+
+
+# Создаём DHCP сеть (шлюз, DNS, маска):
+/ip dhcp-server network
+add address=10.0.0.0/24 comment="\C2\E8\F0\F2\F3\E0\EB\FC\ED\FB\E9 WiFi" \
+    dns-server=10.0.0.1,77.88.8.4 gateway=10.0.0.1 netmask=24
+
+
+# Запрещаем доступ из виртуальной сети в основную: 
+/ip firewall filter
+add place-before=0 action=drop chain=forward comment=\
+    "\C1\EB\EE\EA\E8\F0\EE\E2\E0\F2\FC guest WiFi -> $mainBridge" in-interface=\
+    bridge_Client_WLAN out-interface=$mainBridge
+
+# Запрещаем доступ из виртуальной сети в приватные сети за WAN (192.168.x.x): 
+add place-before=0 action=drop chain=forward comment="\C1\EB\EE\EA\E8\F0\EE\E2\E0\F2\FC guest\
+    \_WiFi -> \EF\F0\E8\E2\E0\F2\ED\FB\E5 \F1\E5\F2\E8 \E7\E0 WAN (192.168.x.x\
+    )" dst-address=192.168.0.0/16 in-interface=bridge_Client_WLAN \
+    out-interface=ether1
+
+
+# Включаем NAT (masquerade) для виртуальной сети:
+/ip firewall nat
+add action=masquerade chain=srcnat comment="\C4\E0\B8\EC \E4\EE\F1\F2\F3\EF \
+    \E2 Internet \E4\EB\FF \E2\F1\E5\E9 \EF\EE\E4\F1\E5\F2\E8" src-address=\
+    10.0.0.0/24
+
+# --- Самоудаление скрипта после его выполнения ---
+:delay 1s
+/system script remove Install_Virtual_Wi-Fi
+:log info "Скрипт установки виртуального WiFi удалён"

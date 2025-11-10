@@ -1,0 +1,47 @@
+# ====================================================================
+# Скрипт "delete_Virtual_WiFi" для удаления виртуального WiFi.
+# Тестировал на роутерах : RB951Ui-2nD (RouterOS 6.48); RB951Ui-2HnD (RouterOS 6.49); RBD52G-5HacD2HnD (RouterOS 7.20).
+# ====================================================================
+
+
+# Удаляем скрипты
+/system script remove [find name="Install_Virtual_Wi-Fi"]
+/system script remove [find name="UpdateVirtual_Wi-Fi"]
+
+# Удаляем планировщик
+/system scheduler remove [find name="UpdateVirtual_Wi-Fi"]
+
+# Удаляем правила NAT и Firewall (будьте осторожны, если у вас есть другие правила)
+# Эти правила не имеют имен, поэтому их нужно искать по комментариям или содержимому
+/ip firewall nat remove [find comment~"Даём доступ в Internet для всей подсети"]
+/ip firewall filter remove [find comment~"Блокировать guest WiFi -> $mainBridge"]
+/ip firewall filter remove [find comment~"Блокировать guest WiFi -> приватные сети за WAN"]
+
+# Удаляем сеть DHCP сервера
+/ip dhcp-server network remove [find address="10.0.0.0/24"]
+
+# Удаляем IP-адрес с бриджа
+/ip address remove [find interface="bridge_Client_WLAN"]
+
+# Удаляем порт из бриджа
+/interface bridge port remove [find interface="Client_WLAN"]
+
+# Удаляем DHCP сервер
+/ip dhcp-server remove [find name="dhcp_Client_WLAN"]
+
+# Удаляем пул IP-адресов
+/ip pool remove [find name="pool_Client_WLAN"]
+
+# Удаляем виртуальный Wi-Fi интерфейс
+/interface wireless remove [find name="Client_WLAN"]
+
+# Удаляем профиль безопасности
+/interface wireless security-profiles remove [find name="security_Client_WLAN"]
+
+# Удаляем бридж
+/interface bridge remove [find name="bridge_Client_WLAN"]
+
+# Удаляем тестового пользователя (если он есть)
+/user remove [find name="WiFi_Virtual_Window"]
+
+ :log info ("Виртуальный WiFi удалён!")

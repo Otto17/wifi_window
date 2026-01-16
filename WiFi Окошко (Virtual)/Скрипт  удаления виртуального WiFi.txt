@@ -41,6 +41,9 @@
 # Удаляем бридж
 /interface bridge remove [find name="bridge_Client_WLAN"]
 
+# Отключаем API
+set api address="" port=8728 disabled=yes
+
 # Удаляем тестового пользователя (если он есть)
 /user remove [find name="WiFi_Virtual_Window"]
 

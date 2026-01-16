@@ -1,19 +1,14 @@
-﻿// Copyright (c) 2025 Otto
+﻿// Copyright (c) 2025-2026 Otto
 // Лицензия: MIT (см. LICENSE)
 
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace WiFi_Окошко
 {
     internal static class Program
     {
-        /// <summary>
-        /// Главная точка входа для приложения.
-        /// </summary>
+        // Главная точка входа для приложения.
         [STAThread]
         static void Main()
         {

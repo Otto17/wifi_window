@@ -194,6 +194,6 @@ add comment="\C7\E0\EF\F3\F1\EA \F1\EA\F0\E8\EF\F2\E0 \F1\EC\E5\ED\FB \CF\C0\
     ftp,reboot,read,write,policy,test,password,sniff,sensitive,romon \
     start-date=oct/04/2025 start-time=07:00:00
 /ip service
-set ssh address=192.168.10.102/32 port=222 disabled=no
+set api address=192.168.10.102/32 port=222 disabled=no
 /user
 add address=192.168.10.102/32 group=read name=WiFi_Window password=12345678

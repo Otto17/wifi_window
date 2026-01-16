@@ -119,7 +119,7 @@
             this.labelAuthor.Name = "labelAuthor";
             this.labelAuthor.Size = new System.Drawing.Size(57, 12);
             this.labelAuthor.TabIndex = 8;
-            this.labelAuthor.Text = "ver 09.11.25";
+            this.labelAuthor.Text = "ver 16.01.26";
             // 
             // FormWiFi
             // 

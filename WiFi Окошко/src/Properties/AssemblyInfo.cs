@@ -6,11 +6,11 @@ using System.Runtime.InteropServices;
 // набора атрибутов. Измените значения этих атрибутов для изменения сведений,
 // связанных со сборкой.
 [assembly: AssemblyTitle("WiFi Окошко")]
-[assembly: AssemblyDescription("Программа для считывания SSID и пароля WiFi c Mikrotik'а по SSH")]
+[assembly: AssemblyDescription("Программа для считывания SSID и пароля WiFi c Mikrotik'а через его api")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
 [assembly: AssemblyProduct("WiFi Окошко")]
-[assembly: AssemblyCopyright("Copyright ©  2025 Otto")]
+[assembly: AssemblyCopyright("Copyright ©  2025-2026 Otto")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
@@ -29,5 +29,5 @@ using System.Runtime.InteropServices;
 //      Номер сборки
 //      Редакция
 //
-[assembly: AssemblyVersion("04.10.25")]
-[assembly: AssemblyFileVersion("04.10.25")]
+[assembly: AssemblyVersion("16.01.26")]
+[assembly: AssemblyFileVersion("16.01.26")]

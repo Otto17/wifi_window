@@ -1,9 +1,8 @@
-﻿// Copyright (c) 2025 Otto
+﻿// Copyright (c) 2025-2026 Otto
 // Лицензия: MIT (см. LICENSE)
 
 using CredentialManagement;
 using QRCoder;
-using Renci.SshNet;
 using System;
 using System.Drawing;
 using System.Net;
@@ -12,6 +11,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using tik4net;
 
 namespace WiFi_Окошко
 {
@@ -32,7 +32,7 @@ namespace WiFi_Окошко
 
         // Оставшееся время в секундах (используется для отображения обратного отсчёта)
         private int remainingSeconds;
-
+        
         // Базовый заголовок формы (значение "this.Text" из дизайнера)
         private readonly string baseTitle;
 
@@ -49,7 +49,7 @@ namespace WiFi_Окошко
         internal FormWiFi()
         {
             InitializeComponent();
-            this.Load += FormWiFi_Load;
+           // this.Load += FormWiFi_Load;
 
             // Сохраняем первоначальный заголовк
             baseTitle = string.IsNullOrWhiteSpace(this.Text) ? "WiFi Окошко" : this.Text.Trim();
@@ -75,7 +75,7 @@ namespace WiFi_Окошко
             }
 
             // Загружаем учётные данные из диспетчера учётных данных Windows
-            if (!TryLoadCredentials(CredentialTarget, out var sshUser, out var sshPass))
+            if (!TryLoadCredentials(CredentialTarget, out var apiUser, out var apiPass))
             {
                 SetLabelText(SSID, "Учётные данные не найдены");    // Показываем ошибку в SSID
                 SetControlFontBold(SSID, false);                    // Делаем обычный шрифт
@@ -85,28 +85,28 @@ namespace WiFi_Окошко
             }
 
             // Порт берётся из имени пользователя (формат "User:222")
-            int sshPort = -1;
+            int apiPort = -1;
 
             // Извлекаем порт из имени пользователя
-            if (!string.IsNullOrEmpty(sshUser))
+            if (!string.IsNullOrEmpty(apiUser))
             {
-                var split = sshUser.Split([':'], StringSplitOptions.RemoveEmptyEntries);
+                var split = apiUser.Split([':'], StringSplitOptions.RemoveEmptyEntries);
                 if (split.Length >= 2)
                 {
                     var lastPart = split[split.Length - 1];
                     if (int.TryParse(lastPart, out var p2) && p2 > 0 && p2 <= 65535)
                     {
-                        sshPort = p2;
+                        apiPort = p2;
 
                         // Восстанавливаем имя пользователя без порта
                         char sep = ':';
-                        sshUser = string.Join(sep.ToString(), split, 0, split.Length - 1);
+                        apiUser = string.Join(sep.ToString(), split, 0, split.Length - 1);
                     }
                 }
             }
 
             // Порт не найден
-            if (sshPort == -1)
+            if (apiPort == -1)
             {
                 SetLabelText(SSID, "Порт не задан");    // Показываем ошибку в SSID
                 SetControlFontBold(SSID, false);        // Делаем обычный шрифт
@@ -118,7 +118,7 @@ namespace WiFi_Окошко
             try
             {
                 // Выполняем подключение асинхронно (в Task.Run, чтобы не блокировать UI)
-                var tuple = await Task.Run(() => ConnectAndFetchFromMikrotik(gw.ToString(), sshPort, sshUser, sshPass));
+                var tuple = await Task.Run(() => ConnectAndFetchFromMikrotik(gw.ToString(), apiPort, apiUser, apiPass));
                 var ssid = tuple.ssid;
                 var passwd = tuple.passwd;
                 var profileBlock = tuple.profileBlock;
@@ -538,46 +538,67 @@ namespace WiFi_Окошко
             rtb.ResumeLayout();
         }
 
-        // Логика подключения и чтения виртуального интерфейса и профиля
+        // Логика подключения через RouterOS API и чтения данных WiFi
         private (string ssid, string passwd, string profileBlock) ConnectAndFetchFromMikrotik(string host, int port, string user, string pass)
         {
-            using var client = new SshClient(host, port, user, pass);
-            client.ConnectionInfo.Timeout = TimeSpan.FromSeconds(8);
-            client.Connect();
-            if (!client.IsConnected)
-                throw new Exception("Не удалось подключиться по SSH");
+            using var connection = ConnectionFactory.CreateConnection(TikConnectionType.Api);
+            connection.Open(host, port, user, pass);
 
             try
             {
-                // SSID с виртуального интерфейса
-                string ssidCmd = $":put [/interface wireless get [find name=\"{EscapeForMikrotik(VirtualInterfaceName)}\"] ssid]";
-                string ssidRaw = client.CreateCommand(ssidCmd).Execute() ?? "";
-                string ssid = NormalizeMikrotikWrappedLines(ssidRaw).Trim();
+                string ssid = "";
+                string wpa = "";
+                string wpa2 = "";
+
+                // Получает SSID с виртуального интерфейса
+                // Формат: /interface/wireless/print где name=Client_WLAN
+                var ssidCmd = connection.CreateCommand("/interface/wireless/print");
+                var ssidResult = ssidCmd.ExecuteList();
+
+                foreach (var sentence in ssidResult)
+                {
+                    // Ищет интерфейс по имени
+                    if (sentence.Words.TryGetValue("name", out string name) &&
+                        name == VirtualInterfaceName)
+                    {
+                        sentence.Words.TryGetValue("ssid", out ssid);
+                        ssid ??= "";
+                        break;
+                    }
+                }
+
+                // Получает ключи из профиля безопасности
+                var profileCmd = connection.CreateCommand("/interface/wireless/security-profiles/print");
+                var profileResult = profileCmd.ExecuteList();
+
+                foreach (var sentence in profileResult)
+                {
+                    // Ищет профиль по имени
+                    if (sentence.Words.TryGetValue("name", out string name) &&
+                        name == VirtualSecurityProfileName)
+                    {
+                        sentence.Words.TryGetValue("wpa-pre-shared-key", out wpa);
+                        sentence.Words.TryGetValue("wpa2-pre-shared-key", out wpa2);
+                        wpa ??= "";
+                        wpa2 ??= "";
+                        break;
+                    }
+                }
+
+                // Декодирует escape-последовательности если есть
                 if (!string.IsNullOrEmpty(ssid))
-                    ssid = DecodeMikrotikEscapes(ssid);
-
-                // Статический профиль безопасности
-                string profileName = VirtualSecurityProfileName;
-
-                // Ключи из статического профиля
-                string wpa2Cmd = $":put [/interface wireless security-profiles get [find name=\"{EscapeForMikrotik(profileName)}\"] wpa2-pre-shared-key]";
-                string wpa2Raw = client.CreateCommand(wpa2Cmd).Execute() ?? "";
-                string wpa2 = NormalizeMikrotikWrappedLines(wpa2Raw).Trim();
+                    ssid = DecodeMikrotikEscapes(ssid.Trim());
                 if (!string.IsNullOrEmpty(wpa2))
-                    wpa2 = DecodeMikrotikEscapes(wpa2);
-
-                string wpaCmd = $":put [/interface wireless security-profiles get [find name=\"{EscapeForMikrotik(profileName)}\"] wpa-pre-shared-key]";
-                string wpaRaw = client.CreateCommand(wpaCmd).Execute() ?? "";
-                string wpa = NormalizeMikrotikWrappedLines(wpaRaw).Trim();
+                    wpa2 = DecodeMikrotikEscapes(wpa2.Trim());
                 if (!string.IsNullOrEmpty(wpa))
-                    wpa = DecodeMikrotikEscapes(wpa);
+                    wpa = DecodeMikrotikEscapes(wpa.Trim());
 
                 // Приоритет пароля: WPA2 -> WPA
                 string passwd = !string.IsNullOrEmpty(wpa2) ? wpa2 : (!string.IsNullOrEmpty(wpa) ? wpa : null);
 
-                // Собираем псевдо-блок профиля для ShowQrCode (чтобы корректно определить тип WPA/WPA2)
+                // Собирает псевдо-блок профиля для ShowQrCode
                 var sb = new StringBuilder();
-                sb.Append($"name=\"{profileName}\"");
+                sb.Append($"name=\"{VirtualSecurityProfileName}\"");
                 if (!string.IsNullOrEmpty(wpa2)) sb.Append($" wpa2-pre-shared-key=\"{wpa2}\"");
                 if (!string.IsNullOrEmpty(wpa)) sb.Append($" wpa-pre-shared-key=\"{wpa}\"");
                 string profileBlock = sb.ToString();
@@ -586,20 +607,9 @@ namespace WiFi_Окошко
             }
             finally
             {
-                if (client.IsConnected)
-                    client.Disconnect();
+                connection.Close();
             }
         }
-
-        // Убирает отступы Mikrotik при переносах длинных строк
-        private static string NormalizeMikrotikWrappedLines(string input)
-        {
-            if (string.IsNullOrEmpty(input)) return input;
-
-            // У Mikrotik переносы длинных строк начинаются с 20 пробелов
-            return Regex.Replace(input, @"\r?\n\s{20,}", string.Empty);
-        }
-
 
         // Декодирует подряд идущие escape-последовательности вида "\HH\HH\HH" в текст
         // Если последовательность успешно даёт кириллический текст при декодировании Windows-1251 — используется он, иначе пробует UTF-8 и другие fallback'ы.
@@ -665,13 +675,6 @@ namespace WiFi_Окошко
                 // В крайнем случае — вернём исходный token (чтобы не терять данные)
                 return token;
             });
-        }
-
-        // Экранирует символы (в частности двойные кавычки) для безопасной вставки в команды Mikrotik
-        private string EscapeForMikrotik(string s)
-        {
-            if (s == null) return "";
-            return s.Replace("\"", "\\\"");
         }
 
         // Находит IPv4-адрес шлюза по умолчанию среди активных сетевых интерфейсов для подключения к Mikrotik'у

@@ -4,6 +4,7 @@
 using CredentialManagement;
 using QRCoder;
 using System;
+using System.IO;
 using System.Drawing;
 using System.Net;
 using System.Net.NetworkInformation;
@@ -51,43 +52,133 @@ namespace WiFi_Окошко
             InitializeComponent();
            // this.Load += FormWiFi_Load;
 
-            // Сохраняем первоначальный заголовк
+            // Сохраняет первоначальный заголовк
             baseTitle = string.IsNullOrWhiteSpace(this.Text) ? "WiFi Окошко" : this.Text.Trim();
+        }
+
+        // Имя файла конфигурации (создаётся рядом с исполняемым файлом)
+        private const string ConfigFileName = "WiFi_Window.conf";
+
+        // Путь к файлу конфигурации (рядом с исполняемым файлом)
+        private static string GetConfigFilePath()
+        {
+            string dir = Path.GetDirectoryName(Application.ExecutablePath);
+            return Path.Combine(dir, ConfigFileName);
+        }
+
+        // Создаёт файл конфигурации с указанным шлюзом (только если файл ещё не существует, перезаписывать не нужно)
+        private static void CreateConfigIfNotExists(string gateway)
+        {
+            string path = GetConfigFilePath();
+            if (File.Exists(path)) return;
+
+            var sb = new StringBuilder();
+            sb.AppendLine("# Использовать кастомный шлюз?");
+            sb.AppendLine("# Если \"false\" - будет игнорироваться указанный шлюз в данном конфиге и осуществляться каждый раз поиск шлюза по умолчанию и подключение к нему.");
+            sb.AppendLine("# Если \"true\" - будет использоваться шлюз указанный ниже.");
+            sb.AppendLine("Use_a_custom_gateway=false");
+            sb.AppendLine();
+            sb.AppendLine("# Шлюз");
+            sb.AppendLine($"gateway={gateway}");
+
+            File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+        }
+
+        // Читает значение ключа из конфигурационного файла (формат "ключ=значение", строки с '#' — комментарии)
+        private static string ReadConfigValue(string key)
+        {
+            string path = GetConfigFilePath();
+            if (!File.Exists(path)) return null;
+
+            foreach (var line in File.ReadAllLines(path, Encoding.UTF8))
+            {
+                var trimmed = line.Trim();
+                if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("#")) continue;
+
+                int eqIndex = trimmed.IndexOf('=');
+                if (eqIndex < 0) continue;
+
+                string k = trimmed.Substring(0, eqIndex).Trim();
+                string v = trimmed.Substring(eqIndex + 1).Trim();
+
+                if (string.Equals(k, key, StringComparison.OrdinalIgnoreCase))
+                    return v;
+            }
+            return null;
         }
 
         // Главный обработчик загрузки: ищет шлюз, загружает креды, извлекает порт, запускает подключение и обновляет UI
         private async void FormWiFi_Load(object sender, EventArgs e)
         {
-            // Показываем начальное состояние только в поле SSID
+            // Показывает начальное состояние только в поле SSID
             SetLabelText(SSID, "Ждём...");
 
-            // Запускаем таймер автозавершения (начинает отсчёт с запуска формы)
+            // Запускает таймер автозавершения (начинает отсчёт с запуска формы)
             StartAutoCloseTimer();
 
-            var gw = GetDefaultGatewayIPv4();
-            if (gw == null)
+            // Определяет шлюз: из конфига (если Use_a_custom_gateway=true) или автоматически
+            string gatewayHost = null;
+            bool configExists = File.Exists(GetConfigFilePath());
+
+            if (configExists)
             {
-                SetLabelText(SSID, "Шлюз не найден");   // Показываем ошибку в SSID
-                SetControlFontBold(SSID, false);        // Делаем обычный шрифт
-                SetLabelText(Passwd, string.Empty);     // Очищаем пароль
-                SetControlFontBold(Passwd, false);      // Делаем обычный шрифт
-                return;
+                // Конфиг существует — проверяет флаг Use_a_custom_gateway
+                string useCustom = ReadConfigValue("Use_a_custom_gateway");
+                if (string.Equals(useCustom, "true", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Использует шлюз из конфига
+                    string cfgGateway = ReadConfigValue("gateway");
+                    if (!string.IsNullOrWhiteSpace(cfgGateway) && IPAddress.TryParse(cfgGateway.Trim(), out _))
+                    {
+                        gatewayHost = cfgGateway.Trim();
+                    }
+                    else
+                    {
+                        // Шлюз в конфиге указан неверно — показывает ошибку и не пытается искать шлюз по умолчанию
+                        SetLabelText(SSID, "Ошибка: неверный шлюз в конфиге");
+                        SetControlFontBold(SSID, false);
+                        SetLabelText(Passwd, string.Empty);
+                        SetControlFontBold(Passwd, false);
+                        return;
+                    }
+                }
             }
 
-            // Загружаем учётные данные из диспетчера учётных данных Windows
+            // Если шлюз ещё не определён (конфига нет или Use_a_custom_gateway=false) — ищет шлюз по умолчанию
+            if (gatewayHost == null)
+            {
+                var gw = GetDefaultGatewayIPv4();
+                if (gw == null)
+                {
+                    SetLabelText(SSID, "Шлюз не найден");   // Показывает ошибку в SSID
+                    SetControlFontBold(SSID, false);        // Делает обычный шрифт
+                    SetLabelText(Passwd, string.Empty);     // Очищает пароль
+                    SetControlFontBold(Passwd, false);      // Делает обычный шрифт
+                    return;
+                }
+                gatewayHost = gw.ToString();
+
+                // Создаём конфиг при первом запуске (если файла ещё нет — записывает найденный шлюз)
+                if (!configExists)
+                {
+                    CreateConfigIfNotExists(gatewayHost);
+                }
+            }
+
+            // Загружает учётные данные из диспетчера учётных данных Windows
             if (!TryLoadCredentials(CredentialTarget, out var apiUser, out var apiPass))
             {
-                SetLabelText(SSID, "Учётные данные не найдены");    // Показываем ошибку в SSID
-                SetControlFontBold(SSID, false);                    // Делаем обычный шрифт
-                SetLabelText(Passwd, string.Empty);                 // Очищаем пароль
-                SetControlFontBold(Passwd, false);                  // Делаем обычный шрифт
+                SetLabelText(SSID, "Учётные данные не найдены");    // Показывает ошибку в SSID
+                SetControlFontBold(SSID, false);                    // Делает обычный шрифт
+                SetLabelText(Passwd, string.Empty);                 // Очищает пароль
+                SetControlFontBold(Passwd, false);                  // Делает обычный шрифт
                 return;
             }
 
             // Порт берётся из имени пользователя (формат "User:222")
             int apiPort = -1;
 
-            // Извлекаем порт из имени пользователя
+            // Извлекает порт из имени пользователя
             if (!string.IsNullOrEmpty(apiUser))
             {
                 var split = apiUser.Split([':'], StringSplitOptions.RemoveEmptyEntries);
@@ -98,7 +189,7 @@ namespace WiFi_Окошко
                     {
                         apiPort = p2;
 
-                        // Восстанавливаем имя пользователя без порта
+                        // Восстанавливает имя пользователя без порта
                         char sep = ':';
                         apiUser = string.Join(sep.ToString(), split, 0, split.Length - 1);
                     }
@@ -108,56 +199,55 @@ namespace WiFi_Окошко
             // Порт не найден
             if (apiPort == -1)
             {
-                SetLabelText(SSID, "Порт не задан");    // Показываем ошибку в SSID
-                SetControlFontBold(SSID, false);        // Делаем обычный шрифт
-                SetLabelText(Passwd, string.Empty);     // Очищаем пароль
-                SetControlFontBold(Passwd, false);      // Делаем обычный шрифт
+                SetLabelText(SSID, "Порт не задан");    // Показывает ошибку в SSID
+                SetControlFontBold(SSID, false);        // Делает обычный шрифт
+                SetLabelText(Passwd, string.Empty);     // Очищает пароль
+                SetControlFontBold(Passwd, false);      // Делает обычный шрифт
                 return;
             }
 
             try
             {
-                // Выполняем подключение асинхронно (в Task.Run, чтобы не блокировать UI)
-                var tuple = await Task.Run(() => ConnectAndFetchFromMikrotik(gw.ToString(), apiPort, apiUser, apiPass));
-                var ssid = tuple.ssid;
+                // Выполняет подключение асинхронно (в Task.Run, чтобы не блокировать UI)
+                var tuple = await Task.Run(() => ConnectAndFetchFromMikrotik(gatewayHost, apiPort, apiUser, apiPass)); var ssid = tuple.ssid;
                 var passwd = tuple.passwd;
                 var profileBlock = tuple.profileBlock;
 
                 if (!string.IsNullOrEmpty(ssid))
                 {
-                    // Успешно получили SSID — показываем и ставим жирный шрифт
+                    // Успешно получили SSID — показывает и ставим жирный шрифт
                     SetLabelText(SSID, ssid);
                     SetControlFontBold(SSID, true);
                 }
                 else
                 {
-                    // Нет SSID — показываем сообщение об ошибке в SSID и делаем обычный шрифт
+                    // Нет SSID — показывает сообщение об ошибке в SSID и делает обычный шрифт
                     SetLabelText(SSID, "SSID не найден");
                     SetControlFontBold(SSID, false);
                 }
 
                 if (!string.IsNullOrEmpty(passwd))
                 {
-                    // Успешно получили пароль — показываем и ставим жирный шрифт
+                    // Успешно получили пароль — показывает и ставим жирный шрифт
                     SetLabelText(Passwd, passwd);
                     SetControlFontBold(Passwd, true);
 
-                    ShowQrCode(ssid, passwd, profileBlock); // Показываем QR в "PictureBoxQr"
+                    ShowQrCode(ssid, passwd, profileBlock); // Показывает QR в "PictureBoxQr"
 
-                    // Подгоняем размеры и ширину формы
+                    // Подгоняет размеры и ширину формы
                     AdjustControlsWidthAndForm();
 
                 }
                 else
                 {
-                    // Пароля нет — очищаем поле и делаем обычный шрифт
+                    // Пароля нет — очищает поле и делает обычный шрифт
                     SetLabelText(Passwd, string.Empty);
                     SetControlFontBold(Passwd, false);
                 }
             }
             catch (Exception ex)
             {
-                // При исключении: показываем ошибку в SSID (не жирным), пароль очищаем
+                // При исключении: показывает ошибку в SSID (не жирным), пароль очищает
                 SetLabelText(SSID, "Ошибка: " + ex.Message);
                 SetControlFontBold(SSID, false);
 
@@ -177,20 +267,20 @@ namespace WiFi_Окошко
             return (int)Math.Ceiling(size.Width) + paddingPx;
         }
 
-        // Обновляем ширину RichTextBox, позицию QR и ширину формы
+        // Обновляет ширину RichTextBox, позицию QR и ширину формы
         private void AdjustControlsWidthAndForm()
         {
             if (SSID == null || Passwd == null || PictureBoxQr == null) return;
 
-            // Измеряем требуемую ширину для каждого поля (без применения к форме)
+            // Измеряет требуемую ширину для каждого поля (без применения к форме)
             int widthSsid = MeasureTextWidthWithPadding(SSID, 5);
             int widthPass = MeasureTextWidthWithPadding(Passwd, 5);
 
-            // Ограничиваем по Min/Max
+            // Ограничивает по Min/Max
             widthSsid = Math.Min(MaxLabelWidth, Math.Max(MinLabelWidth, widthSsid));
             widthPass = Math.Min(MaxLabelWidth, Math.Max(MinLabelWidth, widthPass));
 
-            // Устанавливаем ширины (не двигаем Left'ы)
+            // Устанавливает ширины (не двигает Left'ы)
             SSID.Width = widthSsid;
             Passwd.Width = widthPass;
 
@@ -204,10 +294,10 @@ namespace WiFi_Окошко
             // Новая позиция QR — справа от самого правого поля + промежуток Gap
             int newQrLeft = rightMost + Gap;
 
-            // Рассчитаем необходимую ширину формы (с запасом справа)
+            // Рассчитает необходимую ширину формы (с запасом справа)
             int neededFormWidth = newQrLeft + PictureBoxQr.Width + 15;
 
-            // Если нужно, расширяем форму, но не больше MaxFormWidth
+            // Если нужно, расширяет форму, но не больше MaxFormWidth
             int newFormWidth = Math.Min(MaxFormWidth, Math.Max(this.Width, neededFormWidth));
             this.Width = newFormWidth;
 
@@ -216,7 +306,7 @@ namespace WiFi_Окошко
             if (newQrLeft > maxAllowedQrLeft)
                 newQrLeft = maxAllowedQrLeft;
 
-            // Двигаем PictureBox
+            // Двигает PictureBox
             PictureBoxQr.Left = newQrLeft;
         }
 
@@ -232,7 +322,7 @@ namespace WiFi_Окошко
                 return;
             }
 
-            // Гарантируем, что PictureBox не "приклеен" к правому краю или докнут
+            // Гарантирует, что PictureBox не "приклеен" к правому краю или докнут
             qr.Dock = DockStyle.None;
             qr.Anchor = AnchorStyles.Top | AnchorStyles.Left;
 
@@ -242,7 +332,7 @@ namespace WiFi_Окошко
             try
             {
                 using Graphics g = rtb.CreateGraphics();
-                // Измеряем ширину текста с текущим шрифтом
+                // Измеряет ширину текста с текущим шрифтом
                 SizeF textSize = g.MeasureString(rtb.Text, rtb.Font);
 
                 // Ширина (с запасом)
@@ -260,23 +350,23 @@ namespace WiFi_Окошко
 
                     int neededFormWidth = rtb.Left + rtb.Width + Gap + qr.Width + rightPadding;
 
-                    // Увеличиваем форму, если нужно (но не превышаем MaxFormWidth)
+                    // Увеличивает форму, если нужно (но не превышает MaxFormWidth)
                     if (neededFormWidth > this.Width)
                         this.Width = Math.Min(MaxFormWidth, neededFormWidth);
                 }
                 else
                 {
-                    // Ширина НЕ помещается в рамках MaxFormWidth, попробуем расширить форму до нужного размера (если возможно)
+                    // Ширина НЕ помещается в рамках MaxFormWidth, попробует расширить форму до нужного размера (если возможно)
                     int neededFormWidth = rtb.Left + desiredWidth + Gap + qr.Width + rightPadding;
                     if (neededFormWidth <= MaxFormWidth)
                     {
-                        // Можем расширить форму и поставить desiredWidth
+                        // Может расширить форму и поставить desiredWidth
                         this.Width = Math.Max(this.Width, neededFormWidth);
                         rtb.Width = desiredWidth;
                     }
                     else
                     {
-                        // Нельзя расширить до нужного — ограничиваем rtb так, чтобы QR оставался видимым
+                        // Нельзя расширить до нужного — ограничивает rtb так, чтобы QR оставался видимым
                         rtb.Width = Math.Max(MinLabelWidth, maxAllowedWidth);
 
                         // И ставим форму в максимум
@@ -284,10 +374,10 @@ namespace WiFi_Окошко
                     }
                 }
 
-                // После изменения ширины rtb — корректируем позицию QR
+                // После изменения ширины rtb — корректирует позицию QR
                 qr.Left = rtb.Left + rtb.Width + Gap;
 
-                // Коррекция: не позволяем qr уйти за правую границу client area
+                // Коррекция: не позволяет qr уйти за правую границу client area
                 int clientRight = this.ClientSize.Width;
                 if (qr.Left + qr.Width + rightPadding > clientRight)
                 {
@@ -332,28 +422,28 @@ namespace WiFi_Окошко
                 wifiType = "WPA"; // Запасной вариант
             }
 
-            // Формируем текст для QR-кода
+            // Формирует текст для QR-кода
             string qrText = $"WIFI:T:{wifiType};S:{ssid};P:{password};";
 
             using var qrGen = new QRCodeGenerator();
             var qrData = qrGen.CreateQrCode(qrText, QRCodeGenerator.ECCLevel.Q);
             using var qr = new QRCode(qrData);
 
-            // Генерируем исходный QR, 1 модуль = 1 пиксель
+            // Генерирует исходный QR, 1 модуль = 1 пиксель
             Bitmap qrBmp = qr.GetGraphic(1, Color.Black, Color.White, true);
 
             int targetWidth = PictureBoxQr.Width;
             int targetHeight = PictureBoxQr.Height;
 
-            // Вычисляем масштаб, чтобы QR вписался в PictureBox
+            // Вычисляет масштаб, чтобы QR вписался в PictureBox
             float scaleX = (float)targetWidth / qrBmp.Width;
             float scaleY = (float)targetHeight / qrBmp.Height;
-            float scale = Math.Min(scaleX, scaleY); // Cохраняем пропорции
+            float scale = Math.Min(scaleX, scaleY); // Cохраняет пропорции
 
             int newWidth = (int)(qrBmp.Width * scale);
             int newHeight = (int)(qrBmp.Height * scale);
 
-            // Центрируем QR в PictureBox
+            // Центрирует QR в PictureBox
             Bitmap finalBmp = new(targetWidth, targetHeight);
             using (Graphics g = Graphics.FromImage(finalBmp))
             {
@@ -364,7 +454,7 @@ namespace WiFi_Окошко
                 g.DrawImage(qrBmp, x, y, newWidth, newHeight);
             }
 
-            // Помещаем в контрол
+            // Помещает в контрол
             PictureBoxQr.Image = finalBmp;
         }
 
@@ -406,7 +496,7 @@ namespace WiFi_Окошко
 
             autoCloseTimer = new Timer
             {
-                Interval = 1000 // Обновляем каждую секунду
+                Interval = 1000 // Обновляет каждую секунду
             };
             autoCloseTimer.Tick += AutoCloseTimer_Tick;
             autoCloseTimer.Start();
@@ -420,7 +510,7 @@ namespace WiFi_Окошко
         {
             remainingSeconds = Math.Max(0, remainingSeconds - 1);
 
-            // Обновляем заголовок
+            // Обновляет заголовок
             UpdateWindowTitle(remainingSeconds);
 
             if (remainingSeconds <= 0)
@@ -447,16 +537,16 @@ namespace WiFi_Окошко
             }
             catch
             {
-                // В редком случае защиты от потоков — игнорируем
+                // В редком случае защиты от потоков — игнорирует
             }
         }
 
-        // Универсальный установщик текста: если контрол RichTextBox - делаем цветной рендер, иначе обычный текст
+        // Универсальный установщик текста: если контрол RichTextBox - делает цветной рендер, иначе обычный текст
         private void SetLabelText(Control ctrl, string text)
         {
             if (ctrl == null) return;
 
-            // Если вызов из другого потока — используем Invoke
+            // Если вызов из другого потока — использует Invoke
             if (ctrl.InvokeRequired)
             {
                 ctrl.Invoke(new Action(() => SetLabelText(ctrl, text)));
@@ -465,7 +555,7 @@ namespace WiFi_Окошко
 
             if (ctrl is RichTextBox rtb)
             {
-                // Для RichTextBox используем посимвольный рендер
+                // Для RichTextBox использует посимвольный рендер
                 RenderColoredText(rtb, text ?? string.Empty);
             }
             else if (ctrl is Label lbl)
@@ -491,7 +581,7 @@ namespace WiFi_Окошко
 
             var currentFont = ctrl.Font ?? SystemFonts.DefaultFont;
             FontStyle style = bold ? FontStyle.Bold : FontStyle.Regular;
-            // Сохраняем размер и семейство, заменяем только стиль
+            // Сохраняет размер и семейство, заменяет только стиль
             ctrl.Font = new Font(currentFont.FontFamily, currentFont.Size, style);
         }
 
@@ -531,7 +621,7 @@ namespace WiFi_Окошко
                 rtb.AppendText(ch.ToString());
             }
 
-            // Сбрасываем выделение и ставим в начало
+            // Сбрасывает выделение и ставим в начало
             rtb.SelectionStart = 0;
             rtb.SelectionLength = 0;
             rtb.ReadOnly = true;
@@ -629,7 +719,7 @@ namespace WiFi_Окошко
                     bytes[i] = Convert.ToByte(hexMatches[i].Groups[1].Value, 16);
                 }
 
-                // Используем разные кодировки в порядке приоритетов:
+                // Использует разные кодировки в порядке приоритетов:
                 // 1) Windows-1251 (часто Mikrotik/Win-encoded Cyrillic)
                 // 2) UTF-8
                 // 3) ISO-8859-1 (как безопасный fallback)
@@ -654,7 +744,7 @@ namespace WiFi_Окошко
                     (Encoding.Default, "default")
                 };
 
-                // Сначала ищем декодирование, которое даёт кириллицу
+                // Сначала ищет декодирование, которое даёт кириллицу
                 foreach (var (enc, name) in candidates)
                 {
                     var s = TryWith(enc);
@@ -662,12 +752,12 @@ namespace WiFi_Окошко
                         return s;
                 }
 
-                // Если кириллицы не оказалось, попробуем UTF-8 без символа замены
+                // Если кириллицы не оказалось, попробует UTF-8 без символа замены
                 var utf8 = TryWith(Encoding.UTF8);
                 if (!string.IsNullOrEmpty(utf8) && !utf8.Contains("\uFFFD"))
                     return utf8;
 
-                // Иначе пробуем CP1251
+                // Иначе пробует CP1251
                 var cp1251 = TryWith(Encoding.GetEncoding(1251));
                 if (!string.IsNullOrEmpty(cp1251))
                     return cp1251;
@@ -695,7 +785,7 @@ namespace WiFi_Окошко
                     if (ga?.Address == null) continue;
                     if (ga.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
                     {
-                        // Отбрасываем 127.0.0.1 и 0.0.0.0, берём реальный адрес шлюза
+                        // Отбрасывает 127.0.0.1 и 0.0.0.0, берём реальный адрес шлюза
                         if (!IPAddress.IsLoopback(ga.Address) && !ga.Address.Equals(IPAddress.Parse("0.0.0.0")))
                         return ga.Address;
                     }
